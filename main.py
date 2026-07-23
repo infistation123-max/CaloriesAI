@@ -238,6 +238,7 @@ HTML_INTERFACE = """
 """
 
 def analyze_with_groq(groq_key: str, image_bytes: bytes) -> NutritionData:
+    groq_key = groq_key.strip()
     base64_image = base64.b64encode(image_bytes).decode('utf-8')
     
     prompt = """
@@ -294,6 +295,18 @@ def analyze_with_groq(groq_key: str, image_bytes: bytes) -> NutritionData:
             )
     except urllib.error.HTTPError as e:
         err_body = e.read().decode('utf-8')
+        if e.code == 401:
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "<b>Неверный Groq API Key (401):</b><br>"
+                    "Введенный API ключ недействителен.<br><br>"
+                    "<b>Как исправить:</b><br>"
+                    "1. Перейдите в <a href='https://console.groq.com/keys' target='_blank' class='underline font-bold text-cyan-400'>console.groq.com/keys</a>.<br>"
+                    "2. Нажмите <b>«Create API Key»</b>.<br>"
+                    "3. Скопируйте новый ключ целиком (он начинается на <code>gsk_...</code>) и вставьте в поле."
+                )
+            )
         raise HTTPException(status_code=e.code, detail=f"Ошибка Groq API ({e.code}): {err_body}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка Groq: {str(e)}")
@@ -387,7 +400,8 @@ async def analyze_food(
         raise HTTPException(status_code=400, detail=f"Не удалось прочитать изображение: {str(e)}")
 
     if provider == "groq":
-        final_groq_key = groq_api_key or os.environ.get("GROQ_API_KEY")
+        raw_key = groq_api_key or os.environ.get("GROQ_API_KEY") or ""
+        final_groq_key = raw_key.strip()
         if not final_groq_key:
             raise HTTPException(
                 status_code=400, 
@@ -396,7 +410,8 @@ async def analyze_food(
         return analyze_with_groq(final_groq_key, contents)
 
     # Gemini provider fallback
-    final_gemini_key = api_key or os.environ.get("GEMINI_API_KEY")
+    raw_gemini_key = api_key or os.environ.get("GEMINI_API_KEY") or ""
+    final_gemini_key = raw_gemini_key.strip()
     if not final_gemini_key:
         raise HTTPException(
             status_code=400, 
