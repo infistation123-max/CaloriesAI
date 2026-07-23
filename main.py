@@ -11,7 +11,7 @@ from google.genai import types
 app = FastAPI(title="CalorieAI Backend")
 
 GEMINI_FOOD_PROMPT = """
-Проанализируй это фото еды и выдай ответ СТРОГО в формате JSON без какого-либо дополнительного текста или разметки markdown (без ```json ... ```), используя следующие ключи:
+Проанализируй это фото еды и выдай ответ СТРОГО в формате JSON без какого-либо дополнительного текста или разметки markdown, используя следующие ключи:
 {
   "dish_name": "Название блюда на русском языке",
   "calories": 000,
@@ -20,7 +20,6 @@ GEMINI_FOOD_PROMPT = """
   "carbs_g": 00.0,
   "confidence_score": 0.95
 }
-Если на фото не еда, верни примерные значения для блюда, похожего на то, что изображено, или укажи nutrition равным 0.
 """
 
 HTML_INTERFACE = """
@@ -45,7 +44,7 @@ HTML_INTERFACE = """
         <form id="food-form" class="space-y-4">
             <div>
                 <label class="block text-xs font-semibold text-slate-300 mb-1">
-                    Gemini API Key <span class="text-slate-500 font-normal">(запомнится в браузере или считается с Render)</span>
+                    Gemini API Key <span class="text-slate-500 font-normal">(пусто = ключ с Render)</span>
                 </label>
                 <input type="password" id="api-key" placeholder="Оставьте пустым, если задан GEMINI_API_KEY на Render" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500">
             </div>
@@ -66,7 +65,7 @@ HTML_INTERFACE = """
 
         <div id="result-box" class="hidden bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-2 text-xs">
             <h3 class="font-bold text-emerald-400 border-b border-slate-800 pb-2">Результат анализа:</h3>
-            <div id="result-content" class="font-mono text-slate-200 overflow-x-auto"></div>
+            <div id="result-content" class="font-mono text-slate-200 overflow-x-auto whitespace-pre-wrap"></div>
         </div>
     </div>
 
@@ -130,10 +129,6 @@ class NutritionData(BaseModel):
     carbs_g: float
     confidence_score: float
 
-@app.get("/", response_class=HTMLResponse)
-async def index():
-    return HTML_INTERFACE
-
 @app.post("/api/analyze-food", response_model=NutritionData)
 async def analyze_food(api_key: str = Form(None), image: UploadFile = File(...)):
     try:
@@ -142,19 +137,20 @@ async def analyze_food(api_key: str = Form(None), image: UploadFile = File(...))
         if not final_api_key:
             raise HTTPException(
                 status_code=400,
-                detail="API-ключ не найден! Задайте переменную GEMINI_API_KEY в настройках Render или введите ключ в форме."
+                detail="API-ключ не найден! Передайте ключ в форме или задайте GEMINI_API_KEY в Render."
             )
 
+        # Читаем и оптимизируем размер фото (уменьшаем размер, чтобы снизить количество токенов)
         image_bytes = await image.read()
         pil_image = Image.open(io.BytesIO(image_bytes))
+        pil_image.thumbnail((800, 800))  # Оптимизация размера фото
 
         client = genai.Client(api_key=final_api_key)
 
-        # Точный список официальных моделей Gemini SDK
         candidate_models = [
             "gemini-2.0-flash",
             "gemini-2.0-flash-lite",
-            "gemini-1.5-flash"
+            "gemini-1.5-flash-8b"
         ]
         errors = []
 
@@ -176,9 +172,17 @@ async def analyze_food(api_key: str = Form(None), image: UploadFile = File(...))
                 errors.append(f"{model_name}: {str(model_err)}")
                 continue
 
+        # Если все модели вернули ошибку (например, limit: 0)
+        error_msg = "; ".join(errors)
+        if "limit: 0" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+            raise HTTPException(
+                status_code=429,
+                detail="Google заблокировал бесплатные запросы для вашего ключа (limit: 0). Пожалуйста, перейдите на https://aistudio.google.com/app/apikey, нажмите 'Create API key in NEW project' и замените GEMINI_API_KEY в панели Render."
+            )
+
         raise HTTPException(
             status_code=500,
-            detail=f"Ошибка Gemini API. Детали по моделям: {'; '.join(errors)}"
+            detail=f"Ошибка Gemini API. Детали: {error_msg}"
         )
 
     except HTTPException as http_exc:
