@@ -1,6 +1,5 @@
 
-
-      import io
+import io
 import json
 import os
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -153,17 +152,17 @@ async def analyze_food(api_key: str = Form(None), image: UploadFile = File(...))
         image_bytes = await image.read()
         pil_image = Image.open(io.BytesIO(image_bytes))
 
-        # Инициализируем клиента с полученным ключом
+        # Инициализируем клиента
         client = genai.Client(api_key=final_api_key)
 
-        # Список моделей от наиболее стабильных к альтернативным
+        # Список моделей в порядке приоритета
         candidate_models = [
+            "gemini-2.0-flash",
             "gemini-1.5-flash",
             "gemini-1.5-flash-8b",
-            "gemini-2.0-flash-lite",
-            "gemini-2.0-flash"
+            "gemini-2.0-flash-lite"
         ]
-        last_error = None
+        errors = []
 
         for model_name in candidate_models:
             try:
@@ -171,28 +170,25 @@ async def analyze_food(api_key: str = Form(None), image: UploadFile = File(...))
                     model=model_name,
                     contents=[pil_image, GEMINI_FOOD_PROMPT],
                     config=types.GenerateContentConfig(
-                        response_mime_type="application/json"
+                        response_mime_type="application/json",
+                        response_schema=NutritionData
                     )
                 )
                 
                 raw_text = response.text.strip()
-                if raw_text.startswith("```json"):
-                    raw_text = raw_text[7:]
-                if raw_text.endswith("```"):
-                    raw_text = raw_text[:-3]
-
-                result_json = json.loads(raw_text.strip())
+                result_json = json.loads(raw_text)
                 return NutritionData(**result_json)
             except Exception as model_err:
-                last_error = model_err
-                # Продолжаем перебор моделей при ЛЮБОЙ ошибке (429, 404 и т.д.)
+                errors.append(f"{model_name}: {str(model_err)}")
                 continue
 
         raise HTTPException(
             status_code=500,
-            detail=f"Все модели Gemini вернули ошибку. Последняя ошибка: {str(last_error)}"
+            detail=f"Ошибка Gemini API. Детали по моделям: {'; '.join(errors)}"
         )
 
+    except HTTPException as http_exc:
+        raise http_exc
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
