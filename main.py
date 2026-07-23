@@ -1,4 +1,6 @@
-import io
+
+
+      import io
 import json
 import os
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -154,7 +156,13 @@ async def analyze_food(api_key: str = Form(None), image: UploadFile = File(...))
         # Инициализируем клиента с полученным ключом
         client = genai.Client(api_key=final_api_key)
 
-        candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+        # Список моделей от наиболее стабильных к альтернативным
+        candidate_models = [
+            "gemini-1.5-flash",
+            "gemini-1.5-flash-8b",
+            "gemini-2.0-flash-lite",
+            "gemini-2.0-flash"
+        ]
         last_error = None
 
         for model_name in candidate_models:
@@ -177,13 +185,12 @@ async def analyze_food(api_key: str = Form(None), image: UploadFile = File(...))
                 return NutritionData(**result_json)
             except Exception as model_err:
                 last_error = model_err
-                if "404" in str(model_err) or "NOT_FOUND" in str(model_err):
-                    continue
-                raise model_err
+                # Продолжаем перебор моделей при ЛЮБОЙ ошибке (429, 404 и т.д.)
+                continue
 
         raise HTTPException(
             status_code=500,
-            detail=f"Не удалось подобрать доступную модель Gemini. Ошибка: {str(last_error)}"
+            detail=f"Все модели Gemini вернули ошибку. Последняя ошибка: {str(last_error)}"
         )
 
     except Exception as e:
