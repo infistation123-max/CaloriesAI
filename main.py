@@ -129,6 +129,10 @@ class NutritionData(BaseModel):
     carbs_g: float
     confidence_score: float
 
+@app.get("/", response_class=HTMLResponse)
+async def read_root():
+    return HTML_INTERFACE
+
 @app.post("/api/analyze-food", response_model=NutritionData)
 async def analyze_food(api_key: str = Form(None), image: UploadFile = File(...)):
     try:
