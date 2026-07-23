@@ -1,4 +1,3 @@
-
 import io
 import json
 import os
@@ -73,7 +72,6 @@ HTML_INTERFACE = """
     </div>
 
     <script>
-        // Подтягиваем ключ из памяти браузера при загрузке
         const savedKey = localStorage.getItem('calorie_ai_gemini_key');
         if (savedKey) {
             document.getElementById('api-key').value = savedKey;
