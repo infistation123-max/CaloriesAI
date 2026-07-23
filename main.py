@@ -45,8 +45,10 @@ HTML_INTERFACE = """
 
         <form id="food-form" class="space-y-4">
             <div>
-                <label class="block text-xs font-semibold text-slate-300 mb-1">Gemini API Key (начинается на AQ...)</label>
-                <input type="password" id="api-key" required placeholder="AQ..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500">
+                <label class="block text-xs font-semibold text-slate-300 mb-1">
+                    Gemini API Key <span class="text-slate-500 font-normal">(запомнится в браузере или считается с Render)</span>
+                </label>
+                <input type="password" id="api-key" placeholder="Оставьте пустым, если задан GEMINI_API_KEY на Render" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500">
             </div>
 
             <div>
@@ -70,16 +72,28 @@ HTML_INTERFACE = """
     </div>
 
     <script>
+        // Подтягиваем ключ из памяти браузера при загрузке
+        const savedKey = localStorage.getItem('calorie_ai_gemini_key');
+        if (savedKey) {
+            document.getElementById('api-key').value = savedKey;
+        }
+
         document.getElementById('food-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const apiKey = document.getElementById('api-key').value;
+            const apiKey = document.getElementById('api-key').value.trim();
             const imageFile = document.getElementById('food-image').files[0];
             const loading = document.getElementById('loading');
             const resultBox = document.getElementById('result-box');
             const resultContent = document.getElementById('result-content');
 
+            if (apiKey) {
+                localStorage.setItem('calorie_ai_gemini_key', apiKey);
+            }
+
             const formData = new FormData();
-            formData.append('api_key', apiKey);
+            if (apiKey) {
+                formData.append('api_key', apiKey);
+            }
             formData.append('image', imageFile);
 
             loading.classList.remove('hidden');
@@ -123,16 +137,24 @@ async def index():
     return HTML_INTERFACE
 
 @app.post("/api/analyze-food", response_model=NutritionData)
-async def analyze_food(api_key: str = Form(...), image: UploadFile = File(...)):
+async def analyze_food(api_key: str = Form(None), image: UploadFile = File(...)):
     try:
+        # Приоритет: Ключ из формы -> Переменная GEMINI_API_KEY из окружения Render
+        final_api_key = (api_key.strip() if api_key and api_key.strip() else os.environ.get("GEMINI_API_KEY", "")).strip()
+
+        if not final_api_key:
+            raise HTTPException(
+                status_code=400,
+                detail="API-ключ не найден! Задайте переменную GEMINI_API_KEY в настройках Render или введите ключ в форме."
+            )
+
         image_bytes = await image.read()
         pil_image = Image.open(io.BytesIO(image_bytes))
 
-        # Инициализируем клиента с API-ключом
-        client = genai.Client(api_key=api_key.strip())
+        # Инициализируем клиента с полученным ключом
+        client = genai.Client(api_key=final_api_key)
 
-        # Перебираем поддерживаемые имена моделей для новых API-ключей
-        candidate_models = ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash"]
+        candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
         last_error = None
 
         for model_name in candidate_models:
@@ -145,7 +167,6 @@ async def analyze_food(api_key: str = Form(...), image: UploadFile = File(...)):
                     )
                 )
                 
-                # Очищаем текст от возможных markdown тэгов
                 raw_text = response.text.strip()
                 if raw_text.startswith("```json"):
                     raw_text = raw_text[7:]
@@ -156,7 +177,6 @@ async def analyze_food(api_key: str = Form(...), image: UploadFile = File(...)):
                 return NutritionData(**result_json)
             except Exception as model_err:
                 last_error = model_err
-                # Если модель не найдена для данного ключа, пробуем следующую
                 if "404" in str(model_err) or "NOT_FOUND" in str(model_err):
                     continue
                 raise model_err
