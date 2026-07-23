@@ -254,62 +254,78 @@ def analyze_with_groq(groq_key: str, image_bytes: bytes) -> NutritionData:
     }
     """
 
-    payload = {
-        "model": "llama-3.2-11b-vision-instruct",
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                ]
-            }
-        ],
-        "temperature": 0.2,
-        "response_format": {"type": "json_object"}
-    }
+    # Список актуальных Vision-моделей в Groq API (с автоперебором)
+    candidate_models = [
+        "llama-3.2-11b-vision-preview",
+        "llama-3.2-90b-vision-preview",
+        "qwen/qwen3.6-27b"
+    ]
 
-    try:
-        req = urllib.request.Request(
-            "https://api.groq.com/openai/v1/chat/completions",
-            data=json.dumps(payload).encode('utf-8'),
-            headers={
-                "Authorization": f"Bearer {groq_key}",
-                "Content-Type": "application/json",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            },
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            res_data = json.loads(resp.read().decode('utf-8'))
-            content = res_data['choices'][0]['message']['content']
-            data = json.loads(content)
+    last_error_msg = ""
 
-            return NutritionData(
-                dish_name=data.get("dish_name", "Неизвестное блюдо"),
-                calories=int(data.get("calories", 0)),
-                protein_g=float(data.get("protein_g", 0.0)),
-                fat_g=float(data.get("fat_g", 0.0)),
-                carbs_g=float(data.get("carbs_g", 0.0)),
-                confidence_score=float(data.get("confidence_score", 0.95))
+    for model_name in candidate_models:
+        payload = {
+            "model": model_name,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                    ]
+                }
+            ],
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"}
+        }
+
+        try:
+            req = urllib.request.Request(
+                "https://api.groq.com/openai/v1/chat/completions",
+                data=json.dumps(payload).encode('utf-8'),
+                headers={
+                    "Authorization": f"Bearer {groq_key}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                },
+                method="POST"
             )
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode('utf-8')
-        if e.code == 401:
-            raise HTTPException(
-                status_code=401,
-                detail=(
-                    "<b>Неверный Groq API Key (401):</b><br>"
-                    "Введенный API ключ недействителен.<br><br>"
-                    "<b>Как исправить:</b><br>"
-                    "1. Перейдите в <a href='https://console.groq.com/keys' target='_blank' class='underline font-bold text-cyan-400'>console.groq.com/keys</a>.<br>"
-                    "2. Нажмите <b>«Create API Key»</b>.<br>"
-                    "3. Скопируйте новый ключ целиком (он начинается на <code>gsk_...</code>) и вставьте в поле."
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                res_data = json.loads(resp.read().decode('utf-8'))
+                content = res_data['choices'][0]['message']['content']
+                data = json.loads(content)
+
+                return NutritionData(
+                    dish_name=data.get("dish_name", "Неизвестное блюдо"),
+                    calories=int(data.get("calories", 0)),
+                    protein_g=float(data.get("protein_g", 0.0)),
+                    fat_g=float(data.get("fat_g", 0.0)),
+                    carbs_g=float(data.get("carbs_g", 0.0)),
+                    confidence_score=float(data.get("confidence_score", 0.95))
                 )
-            )
-        raise HTTPException(status_code=e.code, detail=f"Ошибка Groq API ({e.code}): {err_body}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка Groq: {str(e)}")
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode('utf-8')
+            if e.code == 401:
+                raise HTTPException(
+                    status_code=401,
+                    detail=(
+                        "<b>Неверный Groq API Key (401):</b><br>"
+                        "Введенный API ключ недействителен.<br><br>"
+                        "<b>Как исправить:</b><br>"
+                        "1. Перейдите в <a href='https://console.groq.com/keys' target='_blank' class='underline font-bold text-cyan-400'>console.groq.com/keys</a>.<br>"
+                        "2. Нажмите <b>«Create API Key»</b>.<br>"
+                        "3. Скопируйте новый ключ целиком (он начинается на <code>gsk_...</code>) и вставьте в поле."
+                    )
+                )
+            if e.code == 404 or "model_not_found" in err_body:
+                last_error_msg = err_body
+                continue
+            raise HTTPException(status_code=e.code, detail=f"Ошибка Groq API ({e.code}): {err_body}")
+        except Exception as e:
+            last_error_msg = str(e)
+            continue
+
+    raise HTTPException(status_code=404, detail=f"Ошибка Groq API (ни одна из Vision моделей не доступна): {last_error_msg}")
 
 def analyze_with_gemini(gemini_key: str, pil_image: Image.Image) -> NutritionData:
     genai.configure(api_key=gemini_key)
