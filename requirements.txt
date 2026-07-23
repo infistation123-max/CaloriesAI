@@ -1,0 +1,6 @@
+fastapi==0.110.0<br>
+uvicorn==0.28.0<br>
+pillow==10.2.0<br>
+pydantic==2.6.4<br>
+google-genai==0.1.1<br>
+python-multipart==0.0.9
