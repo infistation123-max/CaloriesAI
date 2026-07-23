@@ -192,4 +192,4 @@ async def analyze_food(api_key: str = Form(None), image: UploadFile = File(...))
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reloa
