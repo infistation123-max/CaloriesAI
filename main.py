@@ -153,12 +153,12 @@ async def analyze_food(api_key: str = Form(None), image: UploadFile = File(...))
         # Инициализируем клиента
         client = genai.Client(api_key=final_api_key)
 
-        # Список моделей в порядке приоритета
+        # Актуальный список моделей Gemini
         candidate_models = [
+            "gemini-2.5-flash",
             "gemini-2.0-flash",
-            "gemini-1.5-flash",
-            "gemini-1.5-flash-8b",
-            "gemini-2.0-flash-lite"
+            "gemini-2.0-flash-lite",
+            "gemini-1.5-flash-latest"
         ]
         errors = []
 
