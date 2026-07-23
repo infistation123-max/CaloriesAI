@@ -10,7 +10,6 @@ from google.genai import types
 
 app = FastAPI(title="CalorieAI Backend")
 
-# Промпт для строгого JSON-ответа от Gemini
 GEMINI_FOOD_PROMPT = """
 Проанализируй это фото еды и выдай ответ СТРОГО в формате JSON без какого-либо дополнительного текста или разметки markdown (без ```json ... ```), используя следующие ключи:
 {
@@ -138,7 +137,6 @@ async def index():
 @app.post("/api/analyze-food", response_model=NutritionData)
 async def analyze_food(api_key: str = Form(None), image: UploadFile = File(...)):
     try:
-        # Приоритет: Ключ из формы -> Переменная GEMINI_API_KEY из окружения Render
         final_api_key = (api_key.strip() if api_key and api_key.strip() else os.environ.get("GEMINI_API_KEY", "")).strip()
 
         if not final_api_key:
@@ -150,15 +148,13 @@ async def analyze_food(api_key: str = Form(None), image: UploadFile = File(...))
         image_bytes = await image.read()
         pil_image = Image.open(io.BytesIO(image_bytes))
 
-        # Инициализируем клиента
         client = genai.Client(api_key=final_api_key)
 
-        # Актуальный список моделей Gemini
+        # Точный список официальных моделей Gemini SDK
         candidate_models = [
-            "gemini-2.5-flash",
             "gemini-2.0-flash",
             "gemini-2.0-flash-lite",
-            "gemini-1.5-flash-latest"
+            "gemini-1.5-flash"
         ]
         errors = []
 
